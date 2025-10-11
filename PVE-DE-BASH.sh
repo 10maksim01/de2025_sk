@@ -147,6 +147,11 @@ declare -A config_stand_1_var=(
         network2        =         {      bridge     =      "      🖧: тест  "     , state       =      down     , trunks       =        10;20;30       }          
         network_3       =       {            bridge      =    "         🖧: тест      "        , tags=      10    ,      state             =      down       }      
         network_4       =   🖧: тест  
+		disk_type   	=   sata
+        iso_1           =  https://mirror.yandex.ru/debian/dists/sid/main/installer-amd64/current/images/netboot/mini.iso
+        boot_iso_1		=      https://mirror.yandex.ru/debian/dists/sid/main/installer-amd64/current/images/netboot/mini.iso
+        boot_disk1      =   https://mirror.yandex.ru/altlinux/p10/images/cloud/x86_64/alt-p10-cloud-x86_64.qcow2
+        disk2           =  https://mirror.yandex.ru/altlinux/p10/images/cloud/x86_64/alt-p10-cloud-x86_64.qcow2
     '
 
     [_test-vm2]='test-vm'
@@ -1316,7 +1321,7 @@ function deploy_stand_config() {
 
         for opt in $(printf '%s\n' "${!vm_config[@]}" | sort); do
             case "$opt" in
-                startup|tags|ostype|serial0|serial1|serial2|serial3|agent|scsihw|cpu|iso|cores|cpulimit|cpuunits|memory|bios|bwlimit|description|args|arch|vga|kvm|rng0|acpi|tablet|reboot)
+                startup|tags|ostype|serial[0-3]|agent|scsihw|cpu|cores|memory|bwlimit|description|args|arch|vga|kvm|rng0|acpi|tablet|reboot|startdate|tdf|cpulimit|cpuunits|balloon|hotplug)
                     cmd_line+=" --$opt '${vm_config[$opt]}'";;
                 network*) set_netif_conf "$opt" "${vm_config[$opt]}";;
                 boot_disk*|disk*) set_disk_conf "$opt" "${vm_config[$opt]}";;
