@@ -1207,7 +1207,7 @@ function deploy_stand_config() {
     function set_disk_conf() {
         [[ "$1" == '' || "$2" == '' && "$1" != test ]] && echo_err 'Ошибка: set_disk_conf нет аргумента' && exit 1
         [[ "$1" == 'test' ]] && { [[ "$disk_type" =~ ^(ide|sata|scsi|virtio)$ ]] && return 0; echo_err "Ошибка: указаный в конфигурации тип диска '$disk_type' не является корректным [ide|sata|scsi|virtio]"; exit 1; }
-        [[ ! "$1" =~ ^(boot_|)disk_?[0-9]+ ]] && { echo_err "Ошибка: неизвестный параметр ВМ '$1'" && exit 1; }
+        [[ ! "$1" =~ ^(boot_|)(disk|iso)_?[0-9]+ ]] && { echo_err "Ошибка: неизвестный параметр ВМ '$1'" && exit 1; }
         local _exit=false
         case "$disk_type" in
             ide)    [[ "$disk_num" -le 4  ]] || _exit=true;;
