@@ -1347,7 +1347,7 @@ function deploy_stand_config() {
                     cmd_line+=" --$opt '${vm_config[$opt]}'";;
                 network*) set_netif_conf "$opt" "${vm_config[$opt]}";;
                 bios) [[ "${vm_config[$opt]}" == ovmf ]] && cmd_line+=" --bios 'ovmf' --efidisk0 '${config_base[storage]}:0,format=$config_disk_format'" || cmd_line+=" --$opt '${vm_config[$opt]}'";;
-                ?(boot_)@(disk|iso)*|(disk|iso)*) set_disk_conf "$opt" "${vm_config[$opt]}";;
+                (boot_|)(disk|iso)_?[0-9]) set_disk_conf "$opt" "${vm_config[$opt]}";;
                 access_role) ${config_base[access_create]} && set_role_config "${vm_config[$opt]}";;
                 machine) set_machine_type "${vm_config[$opt]}";;
                 firewall_opt|?(boot_)@(disk|iso)_+([0-9])_opt|templ_*) continue;;
