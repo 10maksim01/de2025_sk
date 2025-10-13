@@ -2345,10 +2345,10 @@ function manage_stands() {
                     stand_list=$( echo "$stand_list"; echo "$stand_name" )
                     local j=1 path user
                     max_count=$( printf '%s\n' "${!acl_list[@]}" | sort -Vr | head -n 1 | grep -Po '^\d+' )
-                    for ((j=0; j<=$max_count; j++)); do
-                        path="${acl_list[$j,path]}"
-                        [[ "$path" == "/pool/$stand_name" && "${acl_list[$j,type]}" == user ]] || continue
-                        user="${acl_list[$j,ugid]}"
+                    for ((j=1; j<=$( echo -n "${acl_list[path]}" | grep -c '^' ); j++)); do
+                        local path=$( echo "${acl_list[path]}" | sed -n "${j}p" )
+                        [[ "$path" == "/pool/$stand_name" && "$( echo "${acl_list[type]}" | sed -n "${j}p" )" == user ]] || continue
+                        local user=$( echo "${acl_list[ugid]}" | sed -n "${j}p" )
                         usr_list=$( echo "$usr_list"; echo "$user" )
                     done
                 }
