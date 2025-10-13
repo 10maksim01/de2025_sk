@@ -483,42 +483,7 @@ function pve_api_request() {
     exit_clear
 }
 
-function configure_api_token() {
-    local pve_api_request_exit=1
-    [[ "$1" == 'clear' ]] && {
 
-        [[ "$var_pve_token_id" == '' ]] && return 0
-        
-		if [[ "$2" == 'force' || "$var_pve_api_curl" == '' ]]; then
-			pvesh delete "/access/users/root@pam/token/$var_pve_token_id" 2>/dev/null
-		else
-			{ pve_api_request '' DELETE "/access/users/root@pam/token/$var_pve_token_id"; [[ $? =~ ^0$|^244$ ]]; } \
-				|| { pvesh delete "/access/users/root@pam/token/$var_pve_token_id" 2>/dev/null; [[ $? =~ ^0$|^255$ ]]; }  \
-				|| echo_err "Ошибка: Не удалось удалить удалить токен API: ${c_val}${var_pve_token_id}${c_err}"
-		fi
-        unset var_pve_token_id var_pve_api_curl
-        return 0
-    } || [[ "$1" != 'init' ]] && { echo_err 'Ошибка: нет подходящих аргументов configure_api_token'; configure_api_token clear force; exit_clear; }
-
-    [[ "$var_pve_token_id" == '' || "$var_pve_api_curl" == '' ]] && {
-        echo_tty "${c_ok}Получение PVE API токена..."
-
-        var_pve_token_id="PVE-ASDaC-BASH_$( cat /proc/sys/kernel/random/uuid )" || { echo_err 'Ошибка: не удалось сгенерировать уникальный идентификатор для API токена'; configure_api_token clear force; exit_clear; }
-        local data
-
-        data=$( pvesh create /access/users/root@pam/token/$var_pve_token_id --privsep '0' --comment "Токен для PVE-ASDaC-BASH. Создан: $( date '+%H:%M:%S %d.%m.%Y' )" --expire "$(( $( date +%s ) + 86400 ))" --output-format json ) \
-            || { echo_err "Ошибка: не удалось создать новый API токен ${c_val}${var_pve_token_id}"; configure_api_token clear force; exit_clear; }
-
-        [[ "$data" =~ '"value":"'([^\"]+) ]] && var_pve_api_curl=${BASH_REMATCH[1]}
-        [[ "$data" =~ '"full-tokenid":"'([^\"]+) ]] && data=${BASH_REMATCH[1]}
-
-        [[ ${#data} -lt 30 || ${#var_pve_api_curl} -lt 30 ]] && { echo_err "Ошибка: непредвиденные значения API token (${c_val}${var_pve_api_curl}${c_err}) и/или token ID (${c_val}${data}${c_err})"; configure_api_token clear force; exit_clear; }
-
-        var_pve_api_curl=( curl -ksG  -x '' -w '\n%{http_code}' --connect-timeout 5 -H "Authorization: PVEAPIToken=$data=$var_pve_api_curl" )
-    }
-    pve_api_request data_pve_version GET /version
-    [[ "$data_pve_version" =~ '"release":"'([^\"]+) ]] && data_pve_version=${BASH_REMATCH[1]} || { echo_err 'Не удалось получить версию PVE через API'; configure_api_token clear force; exit_clear; }
-}
 
 function configure_api_ticket() {
 
@@ -759,7 +724,56 @@ function isurl_check() {
     return 1
 }
 
+function get_yadisk_url_info() {
+    local -n ref_url="$1"; shift
+    [[ "$ref_url" =~ ^(https?://[^/]+/([di])\/[^\/]+)(\/.*)? ]] || { echo_err "Ошибка $FUNCNAME: указанный URL ЯДиска '$ref_url' не является валидным"; exit_clear; }
 
+    [[ ${BASH_REMATCH[2]} != d ]] && { echo_err "Ошибка $FUNCNAME: указанный URL ЯДиска '$ref_url' не является валидным, т.к. файл защищен паролем. Скачивание файлов ЯДиска защищенные паролем на даный момент недоступно. Выход"; exit_clear; }
+    
+    local opt_name='' reply='' regex='\A[\s\n]*{([^{]*?|({[^}]*}))*\"{opt_name}\"\s*:\s*((\"\K[^\"]*)|\K[0-9]+)'
+    reply=$( curl -sGf 'https://cloud-api.yandex.net/v1/disk/public/resources?public_key='"${BASH_REMATCH[1]}&path=${BASH_REMATCH[3]:-/}" ) || {
+        case $? in
+            5) echo_err "Ошибка запроса к Яндекс API: на хосте некорректные настройки прокси";;
+            6|7|28) echo_err "Ошибка запроса к Яндекс API: не удалось связаться с API. Проверьте подключение к интернету/настройки DNS"$'\n'"Код ошибки curl: $?";;
+            22) echo_err "Ошибка запроса к Яндекс API: сервер ответил ошибкой. Проверьте правильность URL '$ref_url'";;
+            *) echo_err "Ошибка: не удалось выполнить запрос Яндекс API для ${c_val}$ref_url${c_err}"$'\n'"Код ошибки curl: $?";;
+        esac
+        exit_clear
+    }
+
+    opt_name=type
+    [[ "$( echo -n "$reply" | grep -Poz "${regex/\{opt_name\}/"$opt_name"}" | sed 's/\x0//g' )" != file ]] && { echo_err "Ошибка: публичная ссылка '$ref_url' не ведет на файл. Проверьте URL, попробуйте указать прямую ссылку (включая подпапки)"$'\nОтвет сервера: '"$reply"; exit_clear; }
+    opt_name=file
+    ref_url="$( echo -n "$reply" | grep -Poz "${regex/\{opt_name\}/$opt_name}" | sed 's/\x0//g' )"
+
+    while [[ "$1" != '' ]]; do
+        [[ "$1" =~ ^([a-zA-Z][0-9a-zA-Z_]{0,32})\=(name|size|antivirus_status|mime_type|sha256|md5|modified|media_type)$ ]] || { echo_err "Ошибка $FUNCNAME: некорректый аргумент '$1'"; exit_clear; }
+        local -n ref_var=${BASH_REMATCH[1]}
+        ref_var="$( echo "$reply" | grep -Poz "${regex/\{opt_name\}/"${BASH_REMATCH[2]}"}" | sed 's/\x0//g' )"
+        [[ "$ref_var" == '' ]] && { echo_err "Ошибка $FUNCNAME: API Я.Диска не вернуло запрашиваемое значение '${BASH_REMATCH[2]}'"; exit_clear; }
+        shift
+    done
+}
+
+function get_url_fileinfo() {
+    isurl_check "$1" || { echo_err "Ошибка get_url_filesize: указанный URL '$1' не является валидным. Выход"; exit_clear; }
+    local baseurl=$( grep -Po '^[^:]+://[^/]+' <<<$1 ) info
+    info=$( curl -sLv -H "Referer: $baseurl" -H "Sec-Fetch-Dest: document" -H "Range: bytes=0-0" -r 0-0 "$1" 2>&1 >/dev/null ) || exit_clear
+    baseurl=$1
+    shift
+    while [[ $1 ]]; do
+        [[ "$1" =~ ^([a-zA-Z][0-9a-zA-Z_]{0,32})\=(name|size|mime_type)$ ]] || { echo_err "Ошибка $FUNCNAME: некорректый аргумент '$1'"; exit_clear; }
+        local -n ref_var=${BASH_REMATCH[1]}
+        case ${BASH_REMATCH[2]} in
+            name) ref_var=$( grep -ioP '<\s*Content-Disposition\s*:\s*attachment\s*;\s*filename\s*=\s*"?\K[^"]+' <<<$info )
+                [[ ! $ref_var ]] && { ref_var=$( grep -Po '.*/\K[^?]+' <<<$baseurl ); printf -v ref_var "%b" "${ref_var//\%/\\x}"; } ;;
+            size) ref_var=$( grep -ioP '<\s*Content-Range\s*:\s*bytes\s*[\-\d]+\/\K\d+' <<<$info );;
+            mime_type) ref_var=$( grep -ioP '<\s*Content-Type\s*:\s*\K[^\s]+' <<<$info );;
+        esac
+        [[ ! $ref_var ]] && { echo_err "Ошибка $FUNCNAME: не удалось получить запрашиваемое значение '${BASH_REMATCH[2]}' для файла по URL '$baseurl'"; exit_clear; }
+        shift
+    done
+}
 
 function get_file() {
 
