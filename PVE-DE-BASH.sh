@@ -147,7 +147,13 @@ declare -A config_stand_1_var=(
         network2        =         {      bridge     =      "      🖧: тест  "     , state       =      down     , trunks       =        10;20;30       }          
         network_3       =       {            bridge      =    "         🖧: тест      "        , tags=      10    ,      state             =      down       }      
         network_4       =   🖧: тест  
-    '
+        disk_type    =   sata
+        iso_1           =  https://mirror.yandex.ru/debian/dists/sid/main/installer-amd64/current/images/netboot/mini.iso
+        boot_iso_1    =      https://mirror.yandex.ru/debian/dists/sid/main/installer-amd64/current/images/netboot/mini.iso
+        boot_disk1      =   https://mirror.yandex.ru/altlinux/p10/images/cloud/x86_64/alt-p10-cloud-x86_64.qcow2
+        disk2           =  https://mirror.yandex.ru/altlinux/p10/images/cloud/x86_64/alt-p10-cloud-x86_64.qcow2
+
+	'
 
     [_test-vm2]='test-vm'
     [test-vm2]='
