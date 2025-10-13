@@ -1290,44 +1290,59 @@ function deploy_stand_config() {
 
     ${config_base[access_create]} && {
         local username="${config_base[access_user_name]/\{0\}/$stand_num}@pve"
-        run_cmd /noexit "pveum user add '$username' --enable '${config_base[access_user_enable]}' --comment '${config_base[access_user_desc]/\{0\}/$stand_num}' --groups '$stands_group'" \
-            || { echo_err "Ошибка: не удалось создать пользователя '$username'"; exit 1; }
-        # run_cmd "pveum user modify '$username' --comment '${config_base[access_user_desc]/\{0\}/$stand_num}'"
-        run_cmd "pveum acl modify '/pool/$pool_name' --users '$username' --roles 'PVEAuditor' --propagate 'false'"
+        
+        run_cmd /noexit pve_api_request return_cmd POST /access/users "'userid=$username' 'groups=$stands_group' 'enable=$( get_int_bool "${config_base[access_user_enable]}" )' 'comment=${config_base[access_user_desc]/\{0\}/$stand_num}'" \
+            || { echo_err "Ошибка: не удалось создать пользователя '$username'"; exit_clear; }
+        
+        if [[ "${config_base[pool_access_role]}" != '' && "${config_base[pool_access_role]}" != NoAccess ]]; then
+            set_role_config "${config_base[pool_access_role]}"
+            run_cmd pve_api_request return_cmd PUT /access/acl "'path=/pool/$pool_name' 'users=$username' 'roles=${config_base[pool_access_role]}'"
+        else run_cmd pve_api_request return_cmd PUT /access/acl "'path=/pool/$pool_name' 'users=$username' roles=PVEAuditor propagate=0"; fi
+        echo_ok "Создан пользователь стенда ${c_val}$username"
     }
 
-    for elem in $(printf '%s\n' "${!config_var[@]}" | grep -P '^[^_]' | sort); do
+    local cmd_line netifs_type='virtio' netifs_mac disk_type='scsi' disk_num=0 boot_order vm_template vm_name
+    local -A vm_config=()
 
-        local cmd_line=''
-        local netifs_type='virtio'
-        local disk_type='scsi'
-        local disk_num=0
-        local boot_order=''
-        local -A vm_config=()
-        local cmd_line="qm create '$vmid' --name '$elem' --pool '$pool_name'"
+    for elem in $(printf '%s\n' "${!config_var[@]}" | grep -P 'vm_\d+' | sort -V ); do
 
-        get_dict_config "config_stand_${opt_sel_var}_var[$elem]" vm_config
+        netifs_type='virtio'
+        netifs_mac=''
+        disk_type='scsi'
+        disk_num=0
+        boot_order=''
+        vm_config=()
+        vm_template="$( get_dict_value config_stand_${opt_sel_var}_var[$elem] config_template )"
 
-        [[ "${vm_config[config_template]}" != '' ]] && {
-            [[ -v "config_templates[${vm_config[config_template]}]" ]] || { echo_err "Ошибка: шаблон конфигурации '${vm_config[config_template]}' для ВМ '$elem' не найден. Выход"; exit 1; }
-            get_dict_config "config_templates[${vm_config[config_template]}]" vm_config
-            get_dict_config "config_stand_${opt_sel_var}_var[$elem]" vm_config
-            unset -v 'vm_config[config_template]';
+        [[ "$vm_template" != '' ]] && {
+            [[ -v "config_templates[$vm_template]" ]] || { echo_err "Ошибка: шаблон конфигурации '$vm_template' для ВМ '$elem' не найден. Выход"; exit_clear; }
+            get_dict_config "config_templates[$vm_template]" vm_config
         }
+        get_dict_config "config_stand_${opt_sel_var}_var[$elem]" vm_config
+        vm_name="${vm_config[name]}"
+        unset 'vm_config[name]' 'vm_config[os_descr]' 'vm_config[templ_descr]' 'vm_config[config_template]'
+
+        [[ "$vm_name" == '' ]] && vm_name="$elem"
+
+        cmd_line="qm create '$vmid' --name '$vm_name' --pool '$pool_name'"
+
         [[ "${vm_config[netifs_type]}" != '' ]] && netifs_type="${vm_config[netifs_type]}" && unset -v 'vm_config[netifs_type]'
         [[ "${vm_config[disk_type]}" != '' ]] && disk_type="${vm_config[disk_type]}" && unset -v 'vm_config[disk_type]'
+        [[ "${vm_config[netifs_mac]}" != '' ]] && netifs_mac="${vm_config[netifs_mac]}" && unset -v 'vm_config[netifs_mac]'
 
-        set_netif_conf test && set_disk_conf test || exit 1
+        set_netif_conf test && set_disk_conf test || exit_clear
 
         for opt in $( printf '%s\n' "${!vm_config[@]}" | sort -V ); do
             case "$opt" in
                 startup|tags|ostype|serial[0-3]|agent|scsihw|cpu|cores|memory|bwlimit|description|args|arch|vga|kvm|rng0|acpi|tablet|reboot|startdate|tdf|cpulimit|cpuunits|balloon|hotplug)
                     cmd_line+=" --$opt '${vm_config[$opt]}'";;
                 network*) set_netif_conf "$opt" "${vm_config[$opt]}";;
-                boot_(disk|iso)*|(disk|iso)*) set_disk_conf "$opt" "${vm_config[$opt]}";;
-                access_roles) ${config_base[access_create]} && set_role_config "${vm_config[$opt]}";;
+                bios) [[ "${vm_config[$opt]}" == ovmf ]] && cmd_line+=" --bios 'ovmf' --efidisk0 '${config_base[storage]}:0,format=$config_disk_format'" || cmd_line+=" --$opt '${vm_config[$opt]}'";;
+                ?(boot_)@(disk|iso)_+([0-9])) set_disk_conf "$opt" "${vm_config[$opt]}";;
+                access_role) ${config_base[access_create]} && set_role_config "${vm_config[$opt]}";;
                 machine) set_machine_type "${vm_config[$opt]}";;
-                *) echo_warn "[Предупреждение]: обнаружен неизвестный параметр конфигурации '$opt = ${vm_config[$opt]}' ВМ '$elem'. Пропущен"
+                firewall_opt|?(boot_)@(disk|iso)_+([0-9])_opt|templ_*) continue;;
+                *) echo_warn "[Предупреждение]: обнаружен неизвестный параметр конфигурации '$opt = ${vm_config[$opt]}' ВМ '$vm_name'. Пропущен"
             esac
         done
         [[ "$boot_order" != '' ]] && cmd_line+=" --boot 'order=$boot_order'"
