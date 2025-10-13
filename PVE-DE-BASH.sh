@@ -1294,6 +1294,15 @@ function deploy_stand_config() {
         cmd_line+=" --machine '$type'"
     }
 
+	    function set_firewall_opt() {
+        [[ "$1" == '' ]] && return 1
+        local opt=''
+        echo -n "$1" | grep -Pq '^{[^{}]*}$' || { echo_err "Ошибка set_firewall_opt: ВМ '$elem' некорректный синтаксис"; exit_clear; }
+        echo -n "$1" | grep -Pq '(^{|,) ?enable ?= ?1 ?(,? ?}$|,)' && opt+=" enable=1"
+        echo -n "$1" | grep -Pq '(^{|,) ?dhcp ?= ?1 ?(,? ?}$|,)' && opt+=" dhcp=1"
+        [[ "$opt" != '' ]] && run_cmd pve_api_request return_cmd PUT "/nodes/$var_pve_node/qemu/$vmid/firewall/options" "${opt}"
+    }
+
     [[ "$1" == '' ]] && echo_err "Внутренняя ошибка скрипта установки стенда" && exit 1
 
     local -n "config_var=config_stand_${opt_sel_var}_var"
@@ -1350,6 +1359,7 @@ function deploy_stand_config() {
                 ?(boot_)@(disk|iso)_+([0-9])) set_disk_conf "$opt" "${vm_config[$opt]}";;
                 access_roles) ${config_base[access_create]} && set_role_config "${vm_config[$opt]}";;
                 machine) set_machine_type "${vm_config[$opt]}";;
+				firewall_opt|?(boot_)@(disk|iso)_+([0-9])_opt|templ_*) continue;;
                 *) echo_warn "[Предупреждение]: обнаружен неизвестный параметр конфигурации '$opt = ${vm_config[$opt]}' ВМ '$elem'. Пропущен"
             esac
         done
