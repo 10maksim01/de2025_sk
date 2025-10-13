@@ -2533,12 +2533,11 @@ function manage_stands() {
             echo_ok "Стенд ${c_value}$pool_name${c_null}: пул удален"
         done
 
-        for ((i=1; i<=$( echo "${user_list[$group_name]}" | wc -l ); i++)); do
-            user_name=$( echo -n "${user_list[$group_name]}" | sed "${i}q;d" )
-            
-            run_cmd /noexit pve_api_request return_cmd DELETE "/access/users/$user_name" \
-                && echo_ok "Пользователь ${c_value}$user_name${c_null} удален" \
-                || { echo_err "Ошибка: не удалось удалить пользователя '$user_name' стенда '$pool_name'"; exit_clear; }
+       for ((i=1; i<=$( echo -n "${user_list[$group_name]}" | grep -c '^' ); i++)); do
+            user_name=$( echo "${user_list[$group_name]}" | sed -n "${i}p" )
+            run_cmd /noexit "pveum user delete '$user_name'" \
+                && echo_ok "пользователь ${c_value}$user_name${c_null} удален" \
+                || { echo_err "Ошибка: не удалось удалить пользователя '$user_name' стенда '$pool_name'"; exit 1; }
         done
 
         local roles_list_after 
