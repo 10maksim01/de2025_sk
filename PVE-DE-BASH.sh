@@ -68,7 +68,7 @@ declare -A config_base=(
     [access_user_enable]=true
 
     [_access_pass_length]='Длина создаваемых паролей для пользователей'
-    [access_pass_length]=5
+    [access_pass_length]=8
 
     [_access_pass_chars]='Используемые символы в паролях [regex]'
     [access_pass_chars]='A-Z0-9'
@@ -759,56 +759,7 @@ function isurl_check() {
     return 1
 }
 
-function get_yadisk_url_info() {
-    local -n ref_url="$1"; shift
-    [[ "$ref_url" =~ ^(https?://[^/]+/([di])\/[^\/]+)(\/.*)? ]] || { echo_err "Ошибка $FUNCNAME: указанный URL ЯДиска '$ref_url' не является валидным"; exit_clear; }
 
-    [[ ${BASH_REMATCH[2]} != d ]] && { echo_err "Ошибка $FUNCNAME: указанный URL ЯДиска '$ref_url' не является валидным, т.к. файл защищен паролем. Скачивание файлов ЯДиска защищенные паролем на даный момент недоступно. Выход"; exit_clear; }
-    
-    local opt_name='' reply='' regex='\A[\s\n]*{([^{]*?|({[^}]*}))*\"{opt_name}\"\s*:\s*((\"\K[^\"]*)|\K[0-9]+)'
-    reply=$( curl -sGf 'https://cloud-api.yandex.net/v1/disk/public/resources?public_key='"${BASH_REMATCH[1]}&path=${BASH_REMATCH[3]:-/}" ) || {
-        case $? in
-            5) echo_err "Ошибка запроса к Яндекс API: на хосте некорректные настройки прокси";;
-            6|7|28) echo_err "Ошибка запроса к Яндекс API: не удалось связаться с API. Проверьте подключение к интернету/настройки DNS"$'\n'"Код ошибки curl: $?";;
-            22) echo_err "Ошибка запроса к Яндекс API: сервер ответил ошибкой. Проверьте правильность URL '$ref_url'";;
-            *) echo_err "Ошибка: не удалось выполнить запрос Яндекс API для ${c_val}$ref_url${c_err}"$'\n'"Код ошибки curl: $?";;
-        esac
-        exit_clear
-    }
-
-    opt_name=type
-    [[ "$( echo -n "$reply" | grep -Poz "${regex/\{opt_name\}/"$opt_name"}" | sed 's/\x0//g' )" != file ]] && { echo_err "Ошибка: публичная ссылка '$ref_url' не ведет на файл. Проверьте URL, попробуйте указать прямую ссылку (включая подпапки)"$'\nОтвет сервера: '"$reply"; exit_clear; }
-    opt_name=file
-    ref_url="$( echo -n "$reply" | grep -Poz "${regex/\{opt_name\}/$opt_name}" | sed 's/\x0//g' )"
-
-    while [[ "$1" != '' ]]; do
-        [[ "$1" =~ ^([a-zA-Z][0-9a-zA-Z_]{0,32})\=(name|size|antivirus_status|mime_type|sha256|md5|modified|media_type)$ ]] || { echo_err "Ошибка $FUNCNAME: некорректый аргумент '$1'"; exit_clear; }
-        local -n ref_var=${BASH_REMATCH[1]}
-        ref_var="$( echo "$reply" | grep -Poz "${regex/\{opt_name\}/"${BASH_REMATCH[2]}"}" | sed 's/\x0//g' )"
-        [[ "$ref_var" == '' ]] && { echo_err "Ошибка $FUNCNAME: API Я.Диска не вернуло запрашиваемое значение '${BASH_REMATCH[2]}'"; exit_clear; }
-        shift
-    done
-}
-
-function get_url_fileinfo() {
-    isurl_check "$1" || { echo_err "Ошибка get_url_filesize: указанный URL '$1' не является валидным. Выход"; exit_clear; }
-    local baseurl=$( grep -Po '^[^:]+://[^/]+' <<<$1 ) info
-    info=$( curl -sLv -H "Referer: $baseurl" -H "Sec-Fetch-Dest: document" -H "Range: bytes=0-0" -r 0-0 "$1" 2>&1 >/dev/null ) || exit_clear
-    baseurl=$1
-    shift
-    while [[ $1 ]]; do
-        [[ "$1" =~ ^([a-zA-Z][0-9a-zA-Z_]{0,32})\=(name|size|mime_type)$ ]] || { echo_err "Ошибка $FUNCNAME: некорректый аргумент '$1'"; exit_clear; }
-        local -n ref_var=${BASH_REMATCH[1]}
-        case ${BASH_REMATCH[2]} in
-            name) ref_var=$( grep -ioP '<\s*Content-Disposition\s*:\s*attachment\s*;\s*filename\s*=\s*"?\K[^"]+' <<<$info )
-                [[ ! $ref_var ]] && { ref_var=$( grep -Po '.*/\K[^?]+' <<<$baseurl ); printf -v ref_var "%b" "${ref_var//\%/\\x}"; } ;;
-            size) ref_var=$( grep -ioP '<\s*Content-Range\s*:\s*bytes\s*[\-\d]+\/\K\d+' <<<$info );;
-            mime_type) ref_var=$( grep -ioP '<\s*Content-Type\s*:\s*\K[^\s]+' <<<$info );;
-        esac
-        [[ ! $ref_var ]] && { echo_err "Ошибка $FUNCNAME: не удалось получить запрашиваемое значение '${BASH_REMATCH[2]}' для файла по URL '$baseurl'"; exit_clear; }
-        shift
-    done
-}
 
 function get_file() {
 
@@ -1684,7 +1635,6 @@ function deploy_stand_config() {
             $create_if && {
                 run_cmd /noexit pve_api_request return_cmd POST "/nodes/$var_pve_node/network" "'iface=$iface' type=bridge autostart=1 'comments=$if_desc'${vlan_aware}${vlan_slave:+" 'bridge_ports=${vlan_slave}'"}" \
                     || { echo_err "Интерфейс '$iface' ($if_desc) уже существует! Выход"; exit_clear; } 
-                echo_ok "Создан bridge интерфейс ${c_value}$iface${c_info} : ${c_value}$if_desc"
             }
 
             ! $special && $create_access_network && ${config_base[access_create]} && [[ "${vm_config[access_role]}" != NoAccess || "${config_base[access_role]}" == '' && "${config_base[pool_access_role]}" != '' && "${config_base[pool_access_role]}" != NoAccess ]] && [[ "$access_role" != NoAccess ]] && { 
@@ -1906,8 +1856,7 @@ function deploy_stand_config() {
 
     run_cmd /noexit pve_api_request return_cmd POST /pools "'poolid=$pool_name' 'comment=${config_base[pool_desc]/\{0\}/$stand_num}'" || { echo_err "Ошибка: не удалось создать пул '$pool_name'"; exit_clear; }
     run_cmd pve_api_request return_cmd PUT /access/acl "'path=/pool/$pool_name' 'groups=$stands_group' roles=NoAccess  propagate=0"
-    echo_ok "Создан пул стенда ${c_val}$pool_name"
-
+   
     ${config_base[access_create]} && {
         local username="${config_base[access_user_name]/\{0\}/$stand_num}@pve"
         
@@ -1918,7 +1867,6 @@ function deploy_stand_config() {
             set_role_config "${config_base[pool_access_role]}"
             run_cmd pve_api_request return_cmd PUT /access/acl "'path=/pool/$pool_name' 'users=$username' 'roles=${config_base[pool_access_role]}'"
         else run_cmd pve_api_request return_cmd PUT /access/acl "'path=/pool/$pool_name' 'users=$username' roles=PVEAuditor propagate=0"; fi
-        echo_ok "Создан пользователь стенда ${c_val}$username"
     }
 
     local cmd_line netifs_type='virtio' netifs_mac disk_type='scsi' disk_num=0 boot_order vm_template vm_name
