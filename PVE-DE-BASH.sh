@@ -63,10 +63,10 @@ declare -A config_base=(
     [access_user_enable]=true
 
     [_access_pass_length]='Длина создаваемых паролей для пользователей'
-    [access_pass_length]=5
+    [access_pass_length]=8
 
     [_access_pass_chars]='Используемые символы в паролях [regex]'
-    [access_pass_chars]='A-Z0-9'
+    [access_pass_chars]='1'
 
     [_access_auth_pam_desc]='Изменение отображаемого названия аутентификации PAM'
     [access_auth_pam_desc]='System'
